@@ -401,7 +401,9 @@ class Recipe(BaseModel):
     type: Annotated[RecipeType, Field(alias='TYPE')]
     style: Annotated[Style, Field(alias='STYLE')]
     equipment: Annotated[Optional[Equipment], Field(None, alias='EQUIPMENT')]
-    brewer: Annotated[str, Field(alias='BREWER', title='Brewer')]
+    brewer: Annotated[
+        Optional[str], Field(None, alias='BREWER', title='Brewer')
+    ]
     asst_brewer: Annotated[
         Optional[str], Field(None, alias='ASST_BREWER', title='Asst Brewer')
     ]
