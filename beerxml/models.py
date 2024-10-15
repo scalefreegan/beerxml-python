@@ -345,6 +345,16 @@ class Yeast(BaseModel):
         Optional[bool], Field(False, alias='ADD_TO_SECONDARY', title='Add To Secondary')
     ]
 
+    @field_validator('type', mode='before')
+    def validate_yeast_type(cls, v):
+        if isinstance(v, str):
+            v = v.rstrip('s')  # Remove trailing 's' if present
+            try:
+                return YeastType(v)
+            except ValueError:
+                raise ValueError(f"Invalid yeast type: {v}")
+        return v
+
 
 class MashStep(BaseModel):
     name: Annotated[str, Field(alias='NAME', title='Name')]
