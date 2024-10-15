@@ -370,6 +370,9 @@ class MashStep(BaseModel):
     ]
     end_temp: Annotated[Optional[int], Field(None, alias='END_TEMP', title='Ramp Time')]
 
+    @field_validator('name', mode='before')
+    def set_default_name(cls, v):
+        return v if v is not None and v != "" else "None"
 
 class Mash(BaseModel):
     name: Annotated[str, Field(alias='NAME', title='Name')]
@@ -404,16 +407,13 @@ class Mash(BaseModel):
             return [mash_steps]
         return mash_steps
 
-
 class Recipe(BaseModel):
     name: Annotated[str, Field(alias='NAME', title='Name')]
     version: Annotated[int, Field(alias='VERSION', ge=1, le=1, title='Version')]
     type: Annotated[RecipeType, Field(alias='TYPE')]
     style: Annotated[Style, Field(alias='STYLE')]
     equipment: Annotated[Optional[Equipment], Field(None, alias='EQUIPMENT')]
-    brewer: Annotated[
-        Optional[str], Field(None, alias='BREWER', title='Brewer')
-    ]
+    brewer: Annotated[str, Field(alias='BREWER', title='Brewer')]
     asst_brewer: Annotated[
         Optional[str], Field(None, alias='ASST_BREWER', title='Asst Brewer')
     ]
@@ -493,6 +493,10 @@ class Recipe(BaseModel):
         Optional[float],
         Field(None, alias='KEG_PRIMING_FACTOR', title='Keg Priming Factor'),
     ]
+
+    @field_validator('brewer', mode='before')
+    def set_default_brewer(cls, v):
+        return v if v is not None else "None"
 
     @field_validator("hops", mode="before")
     def pick_hops(cls, hops):
