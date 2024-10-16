@@ -1,11 +1,23 @@
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Optional
+from typing import List, Optional, Union
 
 import pydantic_core
 from pydantic import BaseModel, Field, RootModel, field_validator
 from typing_extensions import Annotated
+
+def parse_float(value: str) -> float:
+    try:
+        # Try parsing with dot as decimal separator
+        return float(value)
+    except ValueError:
+        try:
+            # If that fails, try replacing comma with dot and parse again
+            return float(value.replace(',', '.'))
+        except ValueError:
+            # If both attempts fail, raise an error
+            raise ValueError(f"Cannot convert '{value}' to float")
 
 
 class RecipeType(Enum):
@@ -21,6 +33,7 @@ class StyleType(Enum):
     WHEAT = 'Wheat'
     MIXED = 'Mixed'
     CIDER = 'Cider'
+    OTHER = 'Other'
 
 
 class EvapRate(RootModel[float]):
@@ -113,7 +126,7 @@ class HopForm(Enum):
     PELLET = 'Pellet'
     PLUG = 'Plug'
     LEAF = 'Leaf'
-
+    EXTRACT = 'Extract'
 
 class CoarseFineDiff(RootModel[float]):
     root: Annotated[float, Field(ge=0.0, le=100.0, title='Coarse Fine Diff')]
@@ -154,6 +167,9 @@ class MiscUse(Enum):
     PRIMARY = 'Primary'
     SECONDARY = 'Secondary'
     BOTTLING = 'Bottling'
+    SPARGE = 'Sparge'
+    WHIRLPOOL = 'Whirlpool'
+    OTHER = 'Other'
 
 
 class Attenuation(RootModel[float]):
@@ -165,10 +181,15 @@ class YeastType(Enum):
     LAGER = 'Lager'
     WHEAT = 'Wheat'
     WINE = 'Wine'
+    MEAD = 'Mead'
     CHAMPAGNE = 'Champagne'
-
+    NORWEGIAN_ALE = 'Norwegian Ale'
+    WILD_AND_SOUR = 'Wilds & Sour'
+    CIDER = 'Cider'
+    UNKNOWN = 'Unknown'
 
 class YeastFlocculation(Enum):
+    N_A = 'N/A'
     LOW = 'Low'
     MEDIUM = 'Medium'
     HIGH = 'High'
@@ -185,14 +206,25 @@ class Water(BaseModel):
     chloride: Annotated[float, Field(alias='CHLORIDE', title='Chloride')]
     sodium: Annotated[float, Field(alias='SODIUM', title='Sodium')]
     magnesium: Annotated[float, Field(alias='MAGNESIUM', title='Magnesium')]
-    ph: Annotated[Optional[float], Field(alias='PH', title='Ph')]
+    ph: Annotated[Optional[float], Field(None, alias='PH', title='Ph')]
     notes: Annotated[Optional[str], Field(alias='NOTES', title='Notes')]
+
+    @field_validator('ph', mode='before')
+    def validate_ph(cls, v):
+        if v is None or v == '' or v == 'N/A':
+            return None
+        try:
+            return parse_float(v)
+        except ValueError:
+            return None
 
 
 class MashStepType(Enum):
     INFUSION = 'Infusion'
     TEMPERATURE = 'Temperature'
     DECOCTION = 'Decoction'
+    STEEPING = 'Steeping'
+
 
 
 class Style(BaseModel):
@@ -233,9 +265,9 @@ class Hop(BaseModel):
     name: Annotated[str, Field(alias='NAME', title='Name')]
     version: Annotated[int, Field(alias='VERSION', ge=1, le=1, title='Version')]
     alpha: Annotated[float, Field(alias='ALPHA', ge=0.0, le=100.0, title='Alpha')]
-    amount: Annotated[float, Field(alias='AMOUNT', gt=0.0, title='Amount')]
+    amount: Annotated[float, Field(alias='AMOUNT', gte=0.0, title='Amount')]
     use: Annotated[HopUse, Field(alias='USE')]
-    time: Annotated[int, Field(alias='TIME', title='Time')]
+    time: Annotated[float, Field(alias='TIME', title='Time')]
     notes: Annotated[Optional[str], Field(None, alias='NOTES', title='Notes')]
     type: Annotated[Optional[HopType], Field(None, alias='TYPE')]
     form: Annotated[Optional[HopForm], Field(None, alias='FORM')]
@@ -257,12 +289,18 @@ class Hop(BaseModel):
     ]
     myrcene: Annotated[Optional[Myrcene], Field(None, alias='MYRCENE', title='Myrcene')]
 
+    @field_validator('name', mode='before')
+    def validate_name(cls, v):
+        if v is None or v == '':
+            return "Unknown"
+        return v
+
 
 class Fermentable(BaseModel):
     name: Annotated[str, Field(alias='NAME', title='Name')]
     version: Annotated[int, Field(alias='VERSION', ge=1, le=1, title='Version')]
     type: Annotated[FermentableType, Field(alias='TYPE')]
-    amount: Annotated[float, Field(alias='AMOUNT', gt=0.0, title='Amount')]
+    amount: Annotated[float, Field(alias='AMOUNT', gte=0.0, title='Amount')]
     yield_: Annotated[float, Field(alias='YIELD', ge=0.0, le=100.0, title='Yield')]
     color: Annotated[float, Field(alias='COLOR', ge=0.0, title='Color')]
     add_after_boil: Annotated[
@@ -292,13 +330,38 @@ class Fermentable(BaseModel):
         Optional[float], Field(None, alias='IBU_GAL_PER_LB', title='Ibu Gal Per Lb')
     ]
 
+    @field_validator('type', mode='before')
+    def validate_fermentable_type(cls, v):
+        fermentable_type_translation = {
+            "Fruit": "Adjunct",
+        }
+        if isinstance(v, str):
+            if v in fermentable_type_translation.keys():
+                return fermentable_type_translation[v]
+            else:
+                return v
+        return v
+    
+    @field_validator('yield_', mode='before')
+    def validate_yield(cls, v):
+        if isinstance(v, str):
+            if parse_float(v) > 100:
+                return "100"
+        return v
+    
+    @field_validator('name', mode='before')
+    def validate_name(cls, v):
+        if v is None or v == '':
+            return "Unknown"
+        return v
+
 
 class Misc(BaseModel):
-    name: Annotated[str, Field(alias='NAME', title='Name')]
+    name: Annotated[Union[str, None], Field(None, alias='NAME', title='Name')]
     version: Annotated[str, Field(alias='VERSION', title='Version')]
     type: Annotated[MiscType, Field(alias='TYPE')]
     use: Annotated[MiscUse, Field(alias='USE')]
-    time: Annotated[int, Field(alias='TIME', title='Time')]
+    time: Annotated[Union[float, None], Field(None, alias='TIME', title='Time')]
     amount: Annotated[float, Field(alias='AMOUNT', title='Amount')]
     amount_is_weight: Annotated[
         Optional[bool], Field(False, alias='AMOUNT_IS_WEIGHT', title='Amount Is Weight')
@@ -307,11 +370,51 @@ class Misc(BaseModel):
     notes: Annotated[Optional[str], Field(None, alias='NOTES', title='Notes')]
 
 
+    @field_validator('name', mode='before')
+    def validate_name(cls, v):
+        if v is None or v == '':
+            return "Unknown"
+        return v
+
+    @field_validator('type', mode='before')
+    def validate_misc_type(cls, v):
+        misc_type_translation = {
+            "finings": "Finning",
+            "Fining": "Finning"
+        }
+        if v is None or v == '':
+            return "Unknown"
+        elif isinstance(v, str):
+            if v in misc_type_translation.keys():
+                return misc_type_translation[v]
+            else:
+                return v
+        return v
+    
+    @field_validator('time', mode='before')
+    def validate_time(cls, v):
+        if v is None or v == '':
+            return None
+        return v
+    
+    @field_validator('use', mode='before')
+    def validate_use(cls, v):
+        misc_use_translation = {
+            "Kegging": "Bottling",
+        }
+        if isinstance(v, str):
+            if v in misc_use_translation.keys():
+                return misc_use_translation[v]
+            else:
+                return v
+        return v
+
+
 class Yeast(BaseModel):
-    name: Annotated[str, Field(alias='NAME', title='Name')]
+    name: Annotated[Union[str, None], Field(None, alias='NAME', title='Name')]
     version: Annotated[int, Field(alias='VERSION', ge=1, le=1, title='Version')]
     type: Annotated[YeastType, Field(alias='TYPE')]
-    amount: Annotated[float, Field(alias='AMOUNT', gt=0.0, title='Amount')]
+    amount: Annotated[float, Field(alias='AMOUNT', gte=0.0, title='Amount')]
     amount_is_weight: Annotated[
         Optional[bool], Field(False, alias='AMOUNT_IS_WEIGHT', title='Amount Is Weight')
     ]
@@ -345,15 +448,46 @@ class Yeast(BaseModel):
         Optional[bool], Field(False, alias='ADD_TO_SECONDARY', title='Add To Secondary')
     ]
 
+    @field_validator('name', mode='before')
+    def validate_name(cls, v):
+        if v is None or v == '':
+            return "Unknown"
+        return v
+
     @field_validator('type', mode='before')
     def validate_yeast_type(cls, v):
+        yeast_type_translation = {
+            "Belgian Ale": "Ale",
+            "British Ale": "Ale",
+            "Irish Ale": "Ale",
+            "Scottish Ale": "Ale",
+            "American Ale": "Ale",
+            "German Ale": "Ale",
+            "Bretts and Blend": "Wilds & Sour",
+        }
+        if v is None or v == '':
+            return "Unknown"
+        elif isinstance(v, str):
+            v = v.rstrip('s')  # Remove trailing 's' if present    
+            if v in yeast_type_translation:
+                return yeast_type_translation[v]
+            else:
+                # Check if the value is in YeastType enum
+                try:
+                    YeastType(v)
+                    return v
+                except ValueError:
+                    return "Unknown"
+        return "Unknown"
+    
+    @field_validator('attenuation', mode='before')
+    def validate_yeast_attenuation(cls, v):
         if isinstance(v, str):
-            v = v.rstrip('s')  # Remove trailing 's' if present
-            try:
-                return YeastType(v)
-            except ValueError:
-                raise ValueError(f"Invalid yeast type: {v}")
+        # if value is greater than 100, set it to 100
+            if parse_float(v) > 100:
+                return "100"
         return v
+    
 
 
 class MashStep(BaseModel):
@@ -363,7 +497,7 @@ class MashStep(BaseModel):
     infuse_amount: Annotated[
         Optional[float], Field(None, alias='INFUSE_AMOUNT', title='Infuse Amount')
     ]
-    step_temp: Annotated[float, Field(alias='STEP_TEMP', title='Step Temp')]
+    step_temp: Annotated[Union[float, None], Field(None, alias='STEP_TEMP', title='Step Temp')]
     step_time: Annotated[Optional[float], Field(alias='STEP_TIME', title='Step Time')]
     ramp_time: Annotated[
         Optional[int], Field(None, alias='RAMP_TIME', title='Ramp Time')
@@ -373,13 +507,32 @@ class MashStep(BaseModel):
     @field_validator('name', mode='before')
     def set_default_name(cls, v):
         return v if v is not None and v != "" else "None"
-
+    
+    @field_validator('step_temp', mode='before')
+    def validate_step_temp(cls, v):
+        if v is None or v == '':
+            return None
+        return v
+    
+    @field_validator('type', mode='before')
+    def validate_mash_step_type(cls, v):
+        mash_step_type_translation = {
+            "Strike": "Infusion",
+            "Top Off": "Infusion",
+        }
+        if isinstance(v, str):
+            if v in mash_step_type_translation.keys():
+                return mash_step_type_translation[v]
+            else:
+                return v
+        return v
+    
 class Mash(BaseModel):
     name: Annotated[str, Field(alias='NAME', title='Name')]
     version: Annotated[int, Field(alias='VERSION', ge=1, le=1, title='Version')]
     grain_temp: Annotated[float, Field(alias='GRAIN_TEMP', title='Grain Temp')]
     mash_steps: Annotated[
-        Optional[List[MashStep]], Field(alias='MASH_STEPS', title='MashSteps')
+        Optional[List[MashStep]], Field(None,alias='MASH_STEPS', title='MashSteps')
     ]
     notes: Annotated[Optional[str], Field(None, alias='NOTES', title='Notes')]
     tun_temp: Annotated[
@@ -402,13 +555,17 @@ class Mash(BaseModel):
 
     @field_validator("mash_steps", mode="before")
     def pick_mash_steps(cls, mash_steps):
-        mash_steps = mash_steps["MASH_STEP"]
+        if mash_steps is None:
+            return []
         if isinstance(mash_steps, dict):
-            return [mash_steps]
+            steps = mash_steps.get("MASH_STEP", [])
+            if isinstance(steps, dict):
+                return [steps]
+            return steps
         return mash_steps
 
 class Recipe(BaseModel):
-    name: Annotated[str, Field(alias='NAME', title='Name')]
+    name: Annotated[Union[str, None], Field(None, alias='NAME', title='Name')]
     version: Annotated[int, Field(alias='VERSION', ge=1, le=1, title='Version')]
     type: Annotated[RecipeType, Field(alias='TYPE')]
     style: Annotated[Style, Field(alias='STYLE')]
@@ -419,7 +576,7 @@ class Recipe(BaseModel):
     ]
     batch_size: Annotated[float, Field(alias='BATCH_SIZE', ge=0.0, title='Batch Size')]
     boil_size: Annotated[float, Field(alias='BOIL_SIZE', ge=0.0, title='Boil Size')]
-    boil_time: Annotated[int, Field(alias='BOIL_TIME', ge=0, title='Boil Time')]
+    boil_time: Annotated[float, Field(alias='BOIL_TIME', ge=0, title='Boil Time')]
     efficiency: Annotated[
         float, Field(alias='EFFICIENCY', ge=0.0, le=100.0, title='Efficiency')
     ]
@@ -454,7 +611,7 @@ class Recipe(BaseModel):
         Optional[int], Field(None, alias='PRIMARY_AGE', title='Primary Age')
     ]
     primary_temp: Annotated[
-        Optional[int], Field(None, alias='PRIMARY_TEMP', title='Primary Temp')
+        Optional[float], Field(None, alias='PRIMARY_TEMP', title='Primary Temp')
     ]
     secondary_age: Annotated[
         Optional[int], Field(None, alias='SECONDARY_AGE', title='Secondary Age')
@@ -472,7 +629,7 @@ class Recipe(BaseModel):
     age_temp: Annotated[Optional[int], Field(None, alias='AGE_TEMP', title='Age Temp')]
     date: Annotated[Optional[str], Field(None, alias='DATE', title='Date')]
     carbonation: Annotated[
-        Optional[float], Field(None, alias='CARBONATION', title='Carbonation')
+        Optional[str], Field(None, alias='CARBONATION', title='Carbonation')
     ]
     forced_carbonation: Annotated[
         Optional[bool],
@@ -497,7 +654,13 @@ class Recipe(BaseModel):
     @field_validator('brewer', mode='before')
     def set_default_brewer(cls, v):
         return v if v is not None else "None"
-
+    
+    @field_validator('name', mode='before')
+    def validate_name(cls, v):
+        if v is None or v == '':
+            return "None"
+        return v
+    
     @field_validator("hops", mode="before")
     def pick_hops(cls, hops):
         try:
